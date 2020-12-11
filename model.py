@@ -54,16 +54,14 @@ class LayoutLMT5(pl.LightningModule):
         return decoded_ids
 
     def forward(self, batch):
-        x, labels, original = batch
-
         # LayoutLM features
-        features = self.encoder.extract_features(x)
+        features = self.encoder(input_ids=batch["input_tokens"], bbox=batch["bbox"])[0]
 
         # Decode features
         if self.training:
             # Return will be loss already
             return self.t5(inputs_embeds=features,
-                           labels=labels)[0]
+                           labels=batch["target"])[0]
         else:
             return self.my_generate(features)
 
@@ -76,14 +74,12 @@ class LayoutLMT5(pl.LightningModule):
         '''
         Same step for validation and testing.
         '''
-        _, _, originals = batch
-
         pred_token_phrases = self(batch)
         preds = [self.detokenizer.decode(pred_tokens) for pred_tokens in pred_token_phrases]
 
         exact_matches = []
         f1s = []
-        for original, pred in zip(originals, preds):
+        for original, pred in zip(batch["target_text"], preds):
             exact_matches.append(compute_exact(original, pred))
             f1s.append(compute_f1(original, pred))
 
@@ -118,3 +114,35 @@ class LayoutLMT5(pl.LightningModule):
     def test_dataloader(self):
         return DataLoader(DocVQA("test", transform=self.hparams.eval_transform),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
+
+
+if __name__ == "__main__":
+    import argparse
+    import multiprocessing as mp
+    from transformers import LayoutLMTokenizer
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--layoutlm_str", type=str, default="microsoft/layoutlm-base-uncased")
+    parser.add_argument("--t5_str", type=str, default="t5-base")
+    parser.add_argument("--seq_len", type=int, default=512)
+    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--bs", type=float, default=2)
+    parser.add_argument("--train_transform", type=object, default=None)
+    parser.add_argument("--eval_transform", type=object, default=None)
+    parser.add_argument("--nworkers", type=object, default=mp.cpu_count())
+    hparams = parser.parse_args()
+
+    model = LayoutLMT5(hparams)
+
+    simulated_input = LayoutLMTokenizer.from_pretrained(hparams.layoutlm_str).encode("Hello World.",
+                                                                                     padding='max_length',
+                                                                                     truncation=True,
+                                                                                     max_length=hparams.seq_len,
+                                                                                     return_tensors='pt')[0].unsqueeze(0)
+
+    bbox = torch.tensor(np.random.randint(0, 1000, size=(1, 512, 4)))
+
+    print(simulated_input.shape, bbox.shape)
+
+    model({"input_tokens": simulated_input,
+           "bbox": bbox,
+           "target": simulated_input})
