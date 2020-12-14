@@ -1,6 +1,12 @@
+import os
+import argparse
+import multiprocessing as mp
+
 import torch
 import numpy as np
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import NeptuneLogger
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from torch.utils.data import DataLoader
 from transformers import T5ForConditionalGeneration, LayoutLMModel, T5Tokenizer
 
@@ -55,7 +61,7 @@ class LayoutLMT5(pl.LightningModule):
 
     def forward(self, batch):
         # LayoutLM features
-        features = self.encoder(input_ids=batch["input_tokens"], bbox=batch["bbox"])[0]
+        features = self.encoder(input_ids=batch["input_tokens"], bbox=batch["bboxes"])[0]
 
         # Decode features
         if self.training:
@@ -104,45 +110,78 @@ class LayoutLMT5(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
     def train_dataloader(self):
-        return DataLoader(DocVQA("train", transform=self.hparams.train_transform),
+        return DataLoader(DocVQA("train", transform=self.hparams.train_transform, no_image=self.hparams.no_image),
                           batch_size=self.hparams.bs, shuffle=True, num_workers=self.hparams.nworkers)
 
     def val_dataloader(self):
-        return DataLoader(DocVQA("val", transform=self.hparams.eval_transform),
+        return DataLoader(DocVQA("val", transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
     def test_dataloader(self):
-        return DataLoader(DocVQA("test", transform=self.hparams.eval_transform),
+        return DataLoader(DocVQA("test", transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
 
 if __name__ == "__main__":
-    import argparse
-    import multiprocessing as mp
-    from transformers import LayoutLMTokenizer
     parser = argparse.ArgumentParser()
-    parser.add_argument("--layoutlm_str", type=str, default="microsoft/layoutlm-base-uncased")
-    parser.add_argument("--t5_str", type=str, default="t5-base")
-    parser.add_argument("--seq_len", type=int, default=512)
-    parser.add_argument("--lr", type=float, default=5e-4)
-    parser.add_argument("--bs", type=float, default=2)
-    parser.add_argument("--train_transform", type=object, default=None)
-    parser.add_argument("--eval_transform", type=object, default=None)
-    parser.add_argument("--nworkers", type=object, default=mp.cpu_count())
+    parser.add_argument("task")
+    parser.add_argument("--layoutlm_str", type=str, default="microsoft/layoutlm-base-uncased", help="LayoutLM weights to load.")
+    parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")
+    parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
+    parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
+    parser.add_argument("--bs", type=float, default=2, help="Batch size.")
+    parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs.")
+    parser.add_argument("--patience", type=int, default=2, help="How many epochs to wait for improvement in validation.")
+    parser.add_argument("--train_transform", type=object, default=None, help="Train transform. Can't be set through CLI.")
+    parser.add_argument("--eval_transform", type=object, default=None, help="Val and test transform. Can't be set through CLI.")
+    parser.add_argument("--nworkers", type=object, default=mp.cpu_count(), help="Number of workers to use in dataloading.")
+    parser.add_argument("--experiment_name", type=str, default="baseline", help="Single word describing experiment.")
+    parser.add_argument("--description", type=str, default="No description.", help="Single phrase describing experiment.")
+    parser.add_argument("--no_image", action="store_true")
+    parser.add_argument("--debug", action="store_true")
     hparams = parser.parse_args()
 
-    model = LayoutLMT5(hparams)
+    if hparams.task == "train":
+        model = LayoutLMT5(hparams=hparams)
 
-    simulated_input = LayoutLMTokenizer.from_pretrained(hparams.layoutlm_str).encode("Hello World.",
-                                                                                     padding='max_length',
-                                                                                     truncation=True,
-                                                                                     max_length=hparams.seq_len,
-                                                                                     return_tensors='pt')[0].unsqueeze(0)
+        tensorboard_path = "logs"
+        os.makedirs(tensorboard_path, exist_ok=True)
 
-    bbox = torch.tensor(np.random.randint(0, 1000, size=(1, 512, 4)))
+        if hparams.debug:
+            callbacks = None
+            logger = None
+        else:
+            neptune_logger = NeptuneLogger(api_key=os.getenv('NEPTUNE_API_TOKEN'),
+                                           project_name="dscarmo/layoutlmt5",
+                                           experiment_name=hparams.experiment_name,
+                                           tags=[hparams.description],
+                                           params=vars(hparams))
 
-    print(simulated_input.shape, bbox.shape)
+            early_stopping = EarlyStopping(monitor="val_loss",
+                                           patience=hparams.patience,
+                                           verbose=False,
+                                           mode='min',
+                                           )
 
-    model({"input_tokens": simulated_input,
-           "bbox": bbox,
-           "target": simulated_input})
+            dir_path = os.path.join("models", hparams.experiment_name)
+            filename = "{epoch}-{val_loss:.2f}-{val_extact_match:.2f}-{val_f1:.2f}"
+            checkpoint_callback = ModelCheckpoint(prefix=hparams["experiment_name"],
+                                                  dirpath=dir_path,
+                                                  monitor="val_loss",
+                                                  mode="min")
+
+            callbacks = [checkpoint_callback, early_stopping]
+            logger = neptune_logger
+
+        trainer = pl.Trainer(max_epochs=hparams.max_epochs,
+                             gpus=1,
+                             logger=logger,
+                             callbacks=callbacks,
+                             fast_dev_run=hparams.debug
+                             )
+
+        print("Hyperparameters")
+        for k, v in vars(hparams).items():
+            print(f"{k}: {v}")
+
+        trainer.fit(model)

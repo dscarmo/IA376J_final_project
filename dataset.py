@@ -82,6 +82,8 @@ class DocVQA(Dataset):
             input_text += lines[line]['text'] + ' '
             bbox = lines[line]['boundingBox']
             bboxes.append(bbox[:2] + bbox[4:6])
+        bboxes += [[0, 0, 0, 0]]*(self.seq_len - len(bboxes))
+        assert len(bboxes) == self.seq_len
 
         input_tokens = self.tokenizer.encode(input_text,
                                              padding='max_length',
