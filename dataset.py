@@ -66,6 +66,7 @@ class DocVQA(Dataset):
 
     def __getitem__(self, i: int):
         data = self.data_json["data"][i]
+
         if self.no_image:
             document = "NA"
         else:
@@ -80,7 +81,7 @@ class DocVQA(Dataset):
         nlines = len(lines)
 
         bboxes = []
-        input_text = ''
+        input_text = 'question: ' + data["question"] + ' input: '
         for line in range(nlines):
             input_text += lines[line]['text'] + ' '
             bbox = lines[line]['boundingBox']
@@ -122,14 +123,22 @@ class DocVQA(Dataset):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument("task")
     parser.add_argument("-ni", action="store_true")
     parser.add_argument("-ts", type=str, default='microsoft/layoutlm-base-uncased')
     args = parser.parse_args()
 
     full_docvqa = DocVQA.full(no_image=args.ni, tokenizer_string=args.ts)
 
-    try:
-        for doc in tqdm(DataLoader(full_docvqa, batch_size=2, shuffle=False, num_workers=12), leave=True, position=0):
+    if args.task == "load_test":
+        try:
+            for doc in tqdm(DataLoader(full_docvqa, batch_size=2, shuffle=False, num_workers=12), leave=True, position=0):
+                pass
+        except KeyboardInterrupt:
             pass
-    except KeyboardInterrupt:
-        pass
+    elif args.task == "random_sample":
+        dl = DataLoader(full_docvqa, batch_size=1, shuffle=True, num_workers=0)
+        sample = next(iter(dl))
+        for k, v in sample.items():
+            if k != "document":
+                print(f"{k}: {v}")
