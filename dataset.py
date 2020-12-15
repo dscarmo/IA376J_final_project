@@ -8,7 +8,7 @@ import imageio
 import numpy as np
 import random
 from tqdm import tqdm
-from transformers import LayoutLMTokenizer
+from transformers import LayoutLMTokenizer, T5Tokenizer
 from torch.utils.data import Dataset, ConcatDataset, DataLoader
 
 
@@ -49,7 +49,10 @@ class DocVQA(Dataset):
             self.data_json = json.load(data_json_file)
 
         self.folder = f"data/raw/{mode}"
-        self.tokenizer = LayoutLMTokenizer.from_pretrained(tokenizer_string)
+        if "t5" in tokenizer_string:
+            self.tokenizer = T5Tokenizer.from_pretrained(tokenizer_string)
+        else:
+            self.tokenizer = LayoutLMTokenizer.from_pretrained(tokenizer_string)
         self.transform = transform
         self.seq_len = seq_len
         self.mode = mode
@@ -82,14 +85,8 @@ class DocVQA(Dataset):
             input_text += lines[line]['text'] + ' '
             bbox = lines[line]['boundingBox']
             bboxes.append(bbox[:2] + bbox[4:6])
-        bboxes += [[0, 0, 0, 0]]*(self.seq_len - len(bboxes))
+        bboxes += [[0, 0, 0, 0]] * (self.seq_len - len(bboxes))
         assert len(bboxes) == self.seq_len
-
-        input_tokens = self.tokenizer.encode(input_text,
-                                             padding='max_length',
-                                             truncation=True,
-                                             max_length=self.seq_len,
-                                             return_tensors='pt')[0]
 
         bboxes = torch.tensor(bboxes)
 
@@ -100,25 +97,39 @@ class DocVQA(Dataset):
                                        max_length=self.seq_len,
                                        return_tensors='pt')[0]
 
+        input_tokens = self.tokenizer.encode_plus(input_text,
+                                                  padding='max_length',
+                                                  truncation=True,
+                                                  max_length=self.seq_len,
+                                                  return_tensors='pt',
+                                                  return_token_type_ids=True)
+
         if self.transform is not None:
             document = self.transform(document)
 
-        return {"document": document,
-                "input_tokens": input_tokens, "input_text": input_text,
-                "bboxes": bboxes,
-                "target": target, "target_text": target_text}
+        return_dict = {"document": document,
+                       "input_ids": input_tokens["input_ids"].squeeze(),
+                       "token_type_ids": input_tokens["token_type_ids"].squeeze(),
+                       "attention_mask": input_tokens["attention_mask"].squeeze(),
+                       "input_text": input_text,
+                       "bboxes": bboxes,
+                       "target": target,
+                       "target_text": target_text}
+
+        return return_dict
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("-ni", action="store_true")
+    parser.add_argument("-ts", type=str, default='microsoft/layoutlm-base-uncased')
     args = parser.parse_args()
 
-    full_docvqa = DocVQA.full(no_image=args.ni)
+    full_docvqa = DocVQA.full(no_image=args.ni, tokenizer_string=args.ts)
 
     try:
-        for doc in tqdm(DataLoader(full_docvqa, batch_size=1, shuffle=False, num_workers=12), leave=True, position=0):
+        for doc in tqdm(DataLoader(full_docvqa, batch_size=2, shuffle=False, num_workers=12), leave=True, position=0):
             pass
     except KeyboardInterrupt:
         pass

@@ -1,10 +1,12 @@
 import os
 import argparse
 import multiprocessing as mp
+from sys import argv
 
 import torch
 import numpy as np
 import pytorch_lightning as pl
+from tqdm import tqdm
 from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from torch.utils.data import DataLoader
@@ -21,7 +23,14 @@ class LayoutLMT5(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
-        self.encoder = LayoutLMModel.from_pretrained(self.hparams.layoutlm_str)
+        if not self.hparams.t5_only:
+            print("Initializing LayoutLM...")
+            self.encoder = LayoutLMModel.from_pretrained(self.hparams.layoutlm_str)
+            if self.hparams.freeze_layoutlm:
+                for param in tqdm(self.encoder.parameters(), desc="Freezing LayoutLM...", leave=True):
+                    param.requires_grad = False
+
+        print("Initializing T5...")
         self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
         self.detokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
 
@@ -60,16 +69,23 @@ class LayoutLMT5(pl.LightningModule):
         return decoded_ids
 
     def forward(self, batch):
-        # LayoutLM features
-        features = self.encoder(input_ids=batch["input_tokens"], bbox=batch["bboxes"])[0]
+        if not self.hparams.t5_only:
+            # Not working in Transformer 4.0.1
+            features = self.encoder(input_ids=batch["input_ids"], token_type_ids=batch["token_type_ids"],
+                                    attention_mask=batch["attention_mask"], bbox=batch["bboxes"])[0]
 
-        # Decode features
         if self.training:
-            # Return will be loss already
-            return self.t5(inputs_embeds=features,
-                           labels=batch["target"])[0]
+            if self.hparams.t5_only:
+                return self.t5(input_ids=batch["input_ids"],
+                               labels=batch["target"])[0]
+            else:
+                return self.t5(inputs_embeds=features,
+                               labels=batch["target"])[0]
         else:
-            return self.my_generate(features)
+            if self.hparams.t5_only:
+                return self.t5.generate(input_ids=batch["input_ids"], max_length=self.hparams.seq_len)
+            else:
+                return self.my_generate(features)
 
     def training_step(self, batch, batch_idx):
         loss = self(batch)
@@ -110,15 +126,18 @@ class LayoutLMT5(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
     def train_dataloader(self):
-        return DataLoader(DocVQA("train", transform=self.hparams.train_transform, no_image=self.hparams.no_image),
+        return DataLoader(DocVQA("train", transform=self.hparams.train_transform, no_image=self.hparams.no_image,
+                                 tokenizer_string=self.hparams.t5_str if self.hparams.t5_only else self.hparams.layoutlm_str),
                           batch_size=self.hparams.bs, shuffle=True, num_workers=self.hparams.nworkers)
 
     def val_dataloader(self):
-        return DataLoader(DocVQA("val", transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
+        return DataLoader(DocVQA("val", transform=self.hparams.eval_transform, no_image=self.hparams.no_image,
+                                 tokenizer_string=self.hparams.t5_str if self.hparams.t5_only else self.hparams.layoutlm_str),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
     def test_dataloader(self):
-        return DataLoader(DocVQA("test", transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
+        return DataLoader(DocVQA("test", transform=self.hparams.eval_transform, no_image=self.hparams.no_image,
+                                 tokenizer_string=self.hparams.t5_str if self.hparams.t5_only else self.hparams.layoutlm_str),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
 
@@ -126,10 +145,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("task")
     parser.add_argument("--layoutlm_str", type=str, default="microsoft/layoutlm-base-uncased", help="LayoutLM weights to load.")
+    parser.add_argument("--freeze_layoutlm", action="store_true", help="Freeze layoutlm weights.")
+    parser.add_argument("--t5_only", action="store_true", help="Remove LayoutLM from model.")
     parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")
     parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
     parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
     parser.add_argument("--bs", type=float, default=2, help="Batch size.")
+    parser.add_argument("--precision", type=int, default=32, help="Precision.")
     parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs.")
     parser.add_argument("--patience", type=int, default=2, help="How many epochs to wait for improvement in validation.")
     parser.add_argument("--train_transform", type=object, default=None, help="Train transform. Can't be set through CLI.")
@@ -137,8 +159,10 @@ if __name__ == "__main__":
     parser.add_argument("--nworkers", type=object, default=mp.cpu_count(), help="Number of workers to use in dataloading.")
     parser.add_argument("--experiment_name", type=str, default="baseline", help="Single word describing experiment.")
     parser.add_argument("--description", type=str, default="No description.", help="Single phrase describing experiment.")
-    parser.add_argument("--no_image", action="store_true")
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--no_image", action="store_true", help="Don't load document images.")
+    parser.add_argument("--debug", action="store_true", help="Fast dev run mode.")
+    parser.add_argument("--cli_args", type=str, default=str(argv), help="Store command line arguments. Don't change manually.")
+    parser.add_argument("--no_fit", action="store_true", help="Do everything except starting the fit.")
     hparams = parser.parse_args()
 
     if hparams.task == "train":
@@ -165,7 +189,7 @@ if __name__ == "__main__":
 
             dir_path = os.path.join("models", hparams.experiment_name)
             filename = "{epoch}-{val_loss:.2f}-{val_extact_match:.2f}-{val_f1:.2f}"
-            checkpoint_callback = ModelCheckpoint(prefix=hparams["experiment_name"],
+            checkpoint_callback = ModelCheckpoint(prefix=hparams.experiment_name,
                                                   dirpath=dir_path,
                                                   monitor="val_loss",
                                                   mode="min")
@@ -175,6 +199,7 @@ if __name__ == "__main__":
 
         trainer = pl.Trainer(max_epochs=hparams.max_epochs,
                              gpus=1,
+                             precision=hparams.precision,
                              logger=logger,
                              callbacks=callbacks,
                              fast_dev_run=hparams.debug
@@ -184,4 +209,5 @@ if __name__ == "__main__":
         for k, v in vars(hparams).items():
             print(f"{k}: {v}")
 
-        trainer.fit(model)
+        if not hparams.no_fit:
+            trainer.fit(model)
