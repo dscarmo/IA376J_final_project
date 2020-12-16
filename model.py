@@ -77,6 +77,8 @@ class LayoutLMT5(pl.LightningModule):
         if self.training:
             if self.hparams.t5_only:
                 return self.t5(input_ids=batch["input_ids"],
+                               token_type_ids=batch["token_type_ids"],
+                               attention_mask=batch["attention_mask"],
                                labels=batch["target"])[0]
             else:
                 return self.t5(inputs_embeds=features,
@@ -181,18 +183,18 @@ if __name__ == "__main__":
                                            tags=[hparams.description],
                                            params=vars(hparams))
 
-            early_stopping = EarlyStopping(monitor="val_loss",
+            early_stopping = EarlyStopping(monitor="val_f1",
                                            patience=hparams.patience,
                                            verbose=False,
-                                           mode='min',
+                                           mode='max',
                                            )
 
             dir_path = os.path.join("models", hparams.experiment_name)
             filename = "{epoch}-{val_loss:.2f}-{val_extact_match:.2f}-{val_f1:.2f}"
             checkpoint_callback = ModelCheckpoint(prefix=hparams.experiment_name,
                                                   dirpath=dir_path,
-                                                  monitor="val_loss",
-                                                  mode="min")
+                                                  monitor="val_f1",
+                                                  mode="max")
 
             callbacks = [checkpoint_callback, early_stopping]
             logger = neptune_logger
