@@ -77,7 +77,6 @@ class LayoutLMT5(pl.LightningModule):
         if self.training:
             if self.hparams.t5_only:
                 return self.t5(input_ids=batch["input_ids"],
-                               token_type_ids=batch["token_type_ids"],
                                attention_mask=batch["attention_mask"],
                                labels=batch["target"])[0]
             else:
