@@ -8,24 +8,24 @@ import imageio
 import numpy as np
 import random
 from tqdm import tqdm
-from transformers import LayoutLMTokenizer, T5Tokenizer
+from transformers import PreTrainedTokenizer, T5Tokenizer
 from torch.utils.data import Dataset, ConcatDataset, DataLoader
 
 
 class DocVQA(Dataset):
     @staticmethod
-    def full(tokenizer_string: str = 'microsoft/layoutlm-base-uncased',
-             transform=None,
-             seq_len=512,
-             no_image=False):
-        dataset = ConcatDataset([DocVQA(mode, tokenizer_string=tokenizer_string, transform=transform,
+    def full(tokenizer: PreTrainedTokenizer,
+             transform: object = None,
+             seq_len: int = 512,
+             no_image: bool = False):
+        dataset = ConcatDataset([DocVQA(mode, tokenizer, transform=transform,
                                         seq_len=seq_len, no_image=no_image) for mode in ["train", "val", "test"]])
-        dataset.__setattr__("tokenizer", dataset.datasets[0].tokenizer)
+        dataset.__setattr__("tokenizer", tokenizer)
         return dataset
 
     def __init__(self,
                  mode: str,
-                 tokenizer_string: str = 'microsoft/layoutlm-base-uncased',
+                 tokenizer: PreTrainedTokenizer,
                  transform: object = None,
                  seq_len: int = 512,
                  no_image: bool = False):
@@ -49,10 +49,7 @@ class DocVQA(Dataset):
             self.data_json = json.load(data_json_file)
 
         self.folder = f"data/raw/{mode}"
-        if "t5" in tokenizer_string:
-            self.tokenizer = T5Tokenizer.from_pretrained(tokenizer_string)
-        else:
-            self.tokenizer = LayoutLMTokenizer.from_pretrained(tokenizer_string)
+        self.tokenizer = tokenizer
         self.transform = transform
         self.seq_len = seq_len
         self.mode = mode
@@ -125,10 +122,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("task")
     parser.add_argument("-ni", action="store_true")
-    parser.add_argument("-ts", type=str, default='microsoft/layoutlm-base-uncased')
     args = parser.parse_args()
 
-    full_docvqa = DocVQA.full(no_image=args.ni, tokenizer_string=args.ts)
+    full_docvqa = DocVQA.full(T5Tokenizer.from_pretrained("t5-small"), no_image=args.ni)
 
     if args.task == "load_test":
         try:

@@ -10,7 +10,7 @@ from tqdm import tqdm
 from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from torch.utils.data import DataLoader
-from transformers import T5ForConditionalGeneration, LayoutLMModel, T5Tokenizer
+from transformers import T5ForConditionalGeneration, LayoutLMModel, T5Tokenizer, LayoutLMTokenizer
 
 from dataset import DocVQA
 from metrics import compute_exact, compute_f1
@@ -32,6 +32,11 @@ class LayoutLMT5(pl.LightningModule):
 
         print("Initializing T5...")
         self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
+
+        if self.t5_only:
+            self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
+        else:
+            self.tokenizer = LayoutLMTokenizer.from_pretrained(self.hparams.layoutlm_str)
         self.detokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
 
     def my_generate(self, features):
@@ -127,18 +132,15 @@ class LayoutLMT5(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
     def train_dataloader(self):
-        return DataLoader(DocVQA("train", transform=self.hparams.train_transform, no_image=self.hparams.no_image,
-                                 tokenizer_string=self.hparams.t5_str if self.hparams.t5_only else self.hparams.layoutlm_str),
+        return DataLoader(DocVQA("train", self.tokenizer, transform=self.hparams.train_transform, no_image=self.hparams.no_image),
                           batch_size=self.hparams.bs, shuffle=True, num_workers=self.hparams.nworkers)
 
     def val_dataloader(self):
-        return DataLoader(DocVQA("val", transform=self.hparams.eval_transform, no_image=self.hparams.no_image,
-                                 tokenizer_string=self.hparams.t5_str if self.hparams.t5_only else self.hparams.layoutlm_str),
+        return DataLoader(DocVQA("val", self.tokenizer, transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
     def test_dataloader(self):
-        return DataLoader(DocVQA("test", transform=self.hparams.eval_transform, no_image=self.hparams.no_image,
-                                 tokenizer_string=self.hparams.t5_str if self.hparams.t5_only else self.hparams.layoutlm_str),
+        return DataLoader(DocVQA("test", self.tokenizer, transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
 
