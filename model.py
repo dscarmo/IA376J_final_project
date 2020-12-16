@@ -169,9 +169,6 @@ if __name__ == "__main__":
     if hparams.task == "train":
         model = LayoutLMT5(hparams=hparams)
 
-        tensorboard_path = "logs"
-        os.makedirs(tensorboard_path, exist_ok=True)
-
         if hparams.debug:
             callbacks = None
             logger = None
