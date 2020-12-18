@@ -39,12 +39,13 @@ class LayoutLMT5(pl.LightningModule):
             self.tokenizer = LayoutLMTokenizer.from_pretrained(self.hparams.layoutlm_str)
         self.detokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
 
-    def my_generate(self, features):
+    def my_generate(self, features, max_length=None):
         '''
         Adaptação de código da aula 10 do semestre passado.
         Usa features construídas externamente para gerar frases com T5.
         '''
-        max_length = self.hparams.seq_len
+        if max_length is None:
+            max_length = self.hparams.seq_len
 
         decoded_ids = torch.full((features.shape[0], 1),
                                  self.t5.config.decoder_start_token_id,
@@ -89,9 +90,9 @@ class LayoutLMT5(pl.LightningModule):
                                labels=batch["target"])[0]
         else:
             if self.hparams.t5_only:
-                return self.t5.generate(input_ids=batch["input_ids"], max_length=self.hparams.seq_len)
+                return self.t5.generate(input_ids=batch["input_ids"], max_length=32)
             else:
-                return self.my_generate(features)
+                return self.my_generate(features, max_length=32)
 
     def training_step(self, batch, batch_idx):
         loss = self(batch)
@@ -103,30 +104,35 @@ class LayoutLMT5(pl.LightningModule):
         Same step for validation and testing.
         '''
         pred_token_phrases = self(batch)
-        preds = [self.detokenizer.decode(pred_tokens) for pred_tokens in pred_token_phrases]
+        preds = [self.detokenizer.decode(pred_tokens, skip_special_tokens=True) for pred_tokens in pred_token_phrases]
 
-        exact_matches = []
-        f1s = []
-        for original, pred in zip(batch["target_text"], preds):
-            exact_matches.append(compute_exact(original, pred))
-            f1s.append(compute_f1(original, pred))
-
-        exact_match = np.array(exact_matches).mean()
-        f1 = np.array(f1s).mean()
-
-        return exact_match, f1
+        return batch["target_text"], preds
 
     def validation_step(self, batch, batch_idx):
-        exact_match, f1 = self.evaluation_step(batch)
-
-        self.log('val_exact_match', exact_match, on_epoch=True, on_step=False, prog_bar=True)
-        self.log('val_f1', f1, on_epoch=True, on_step=False, prog_bar=True)
+        return self.evaluation_step(batch)
 
     def test_step(self, batch, batch_idx):
-        exact_match, f1 = self.evaluation_step(batch)
+        return self.evaluation_step(batch)
 
-        self.log('test_exact_match', exact_match, on_epoch=True, on_step=False, prog_bar=True)
-        self.log('test_f1', f1, on_epoch=True, on_step=False, prog_bar=True)
+    def epoch_end(self, outputs, phase):
+        tgts, preds = [], []
+        for output in outputs:
+            tgts += output[0]
+            preds += output[1]
+
+        f1s, exacts = [], []
+        for tgt, pred in zip(tgts, preds):
+            f1s.append(compute_f1(tgt, pred))
+            exacts.append(compute_exact(tgt, pred))
+
+        self.log_dict({f"{phase}_f1": np.array(f1s).mean(), f"{phase}_exact_match": np.array(exacts).mean()},
+                      prog_bar=True, on_step=False, on_epoch=True)
+
+    def validation_epoch_end(self, outputs):
+        return self.epoch_end(outputs, "val")
+
+    def test_epoch_end(self, outputs):
+        return self.epoch_end(outputs, "test")
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -166,6 +172,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Fast dev run mode.")
     parser.add_argument("--cli_args", type=str, default=str(argv), help="Store command line arguments. Don't change manually.")
     parser.add_argument("--no_fit", action="store_true", help="Do everything except starting the fit.")
+    parser.add_argument("--pretrained_model", type=str, default=None, help="Pre trained model to start with.")
     hparams = parser.parse_args()
 
     if hparams.task == "train":
@@ -211,3 +218,7 @@ if __name__ == "__main__":
 
         if not hparams.no_fit:
             trainer.fit(model)
+    elif hparams.task == "validate":
+        pretrained_model = LayoutLMT5.load_from_checkpoint(hparams.pretrained_model, strict=False)
+        validator = pl.Trainer(gpus=1, logger=False)
+        validator.test(pretrained_model, test_dataloaders=pretrained_model.val_dataloader())

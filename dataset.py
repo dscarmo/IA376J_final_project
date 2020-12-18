@@ -128,8 +128,11 @@ if __name__ == "__main__":
 
     if args.task == "load_test":
         try:
-            for doc in tqdm(DataLoader(full_docvqa, batch_size=2, shuffle=False, num_workers=12), leave=True, position=0):
-                pass
+            out_lens = []
+            for doc in tqdm(DataLoader(full_docvqa, batch_size=1, shuffle=False, num_workers=12), leave=True, position=0):
+                out_lens.append(torch.count_nonzero(doc["target"]))
+
+            print(f"Mean output length: {np.array(out_lens).mean()}")
         except KeyboardInterrupt:
             pass
     elif args.task == "random_sample":

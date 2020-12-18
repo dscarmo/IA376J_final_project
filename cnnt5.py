@@ -106,7 +106,7 @@ class CNNT5(pl.LightningModule):
         _, _, originals = batch
 
         pred_token_phrases = self(batch)
-        preds = [self.tokenizer.decode(pred_tokens) for pred_tokens in pred_token_phrases]
+        preds = [self.tokenizer.decode(pred_tokens, skip_special_tokens=True) for pred_tokens in pred_token_phrases]
 
         exact_matches = []
         f1s = []
@@ -147,7 +147,4 @@ class CNNT5(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    try:
-        cnn_t5 = CNNT5.load_from_checkpoint("models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt")
-    except RuntimeError as re:
-        print(f"Ignoring weight loading error: {re}")
+    cnn_t5 = CNNT5.load_from_checkpoint("models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt", strict=False)
