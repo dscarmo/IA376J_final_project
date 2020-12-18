@@ -33,7 +33,7 @@ class LayoutLMT5(pl.LightningModule):
         print("Initializing T5...")
         self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
 
-        if self.t5_only:
+        if self.hparams.t5_only:
             self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
         else:
             self.tokenizer = LayoutLMTokenizer.from_pretrained(self.hparams.layoutlm_str)
