@@ -87,6 +87,7 @@ class DocVQA(Dataset):
         assert len(bboxes) == self.seq_len
 
         bboxes = torch.tensor(bboxes)
+        bboxes = (((bboxes - bboxes.min()) / (bboxes.max() - bboxes.min()))*1000).long()
 
         target_text = random.choice(data["answers"]) if self.mode == "train" else data.get("answers", ["NA"])[0]
         target = self.tokenizer.encode(target_text,

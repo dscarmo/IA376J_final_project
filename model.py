@@ -76,7 +76,6 @@ class LayoutLMT5(pl.LightningModule):
 
     def forward(self, batch):
         if not self.hparams.t5_only:
-            # Not working in Transformer 4.0.1
             features = self.encoder(input_ids=batch["input_ids"], token_type_ids=batch["token_type_ids"],
                                     attention_mask=batch["attention_mask"], bbox=batch["bboxes"])[0]
 
@@ -159,7 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")
     parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
     parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
-    parser.add_argument("--bs", type=float, default=2, help="Batch size.")
+    parser.add_argument("--bs", type=int, default=2, help="Batch size.")
     parser.add_argument("--precision", type=int, default=32, help="Precision.")
     parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs.")
     parser.add_argument("--patience", type=int, default=2, help="How many epochs to wait for improvement in validation.")
@@ -173,13 +172,14 @@ if __name__ == "__main__":
     parser.add_argument("--cli_args", type=str, default=str(argv), help="Store command line arguments. Don't change manually.")
     parser.add_argument("--no_fit", action="store_true", help="Do everything except starting the fit.")
     parser.add_argument("--pretrained_model", type=str, default=None, help="Pre trained model to start with.")
+    parser.add_argument("--cpu", action="store_true", help="Force using CPU.")
     hparams = parser.parse_args()
 
     if hparams.task == "train":
         model = LayoutLMT5(hparams=hparams)
 
         if hparams.debug:
-            callbacks = None
+            callbacks = False
             logger = None
         else:
             neptune_logger = NeptuneLogger(api_key=os.getenv('NEPTUNE_API_TOKEN'),
@@ -205,7 +205,7 @@ if __name__ == "__main__":
             logger = neptune_logger
 
         trainer = pl.Trainer(max_epochs=hparams.max_epochs,
-                             gpus=1,
+                             gpus=0 if hparams.cpu else 1,
                              precision=hparams.precision,
                              logger=logger,
                              callbacks=callbacks,
