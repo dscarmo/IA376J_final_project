@@ -179,37 +179,35 @@ if __name__ == "__main__":
         model = LayoutLMT5(hparams=hparams)
 
         if hparams.debug:
-            callbacks = False
-            logger = None
+            logger = False
+            callbacks = None
         else:
-            neptune_logger = NeptuneLogger(api_key=os.getenv('NEPTUNE_API_TOKEN'),
-                                           project_name="dscarmo/layoutlmt5",
-                                           experiment_name=hparams.experiment_name,
-                                           tags=[hparams.description],
-                                           params=vars(hparams))
-
-            early_stopping = EarlyStopping(monitor="val_f1",
-                                           patience=hparams.patience,
-                                           verbose=False,
-                                           mode='max',
-                                           )
+            logger = NeptuneLogger(api_key=os.getenv('NEPTUNE_API_TOKEN'),
+                                   project_name="dscarmo/layoutlmt5",
+                                   experiment_name=hparams.experiment_name,
+                                   tags=[hparams.description],
+                                   params=vars(hparams))
 
             dir_path = os.path.join("models", hparams.experiment_name)
             filename = "{epoch}-{val_loss:.2f}-{val_extact_match:.2f}-{val_f1:.2f}"
-            checkpoint_callback = ModelCheckpoint(prefix=hparams.experiment_name,
-                                                  dirpath=dir_path,
-                                                  monitor="val_f1",
-                                                  mode="max")
-
-            callbacks = [checkpoint_callback, early_stopping]
-            logger = neptune_logger
+            callbacks = [EarlyStopping(monitor="val_f1",
+                                       patience=hparams.patience,
+                                       verbose=False,
+                                       mode='max',
+                                       ),
+                         ModelCheckpoint(prefix=hparams.experiment_name,
+                                         dirpath=dir_path,
+                                         filename=filename,
+                                         monitor="val_f1",
+                                         mode="max")]
 
         trainer = pl.Trainer(max_epochs=hparams.max_epochs,
                              gpus=0 if hparams.cpu else 1,
                              precision=hparams.precision,
                              logger=logger,
                              callbacks=callbacks,
-                             fast_dev_run=hparams.debug
+                             fast_dev_run=hparams.debug,
+                             checkpoint_callback=False if hparams.debug else True
                              )
 
         print("Hyperparameters")

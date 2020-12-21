@@ -82,12 +82,19 @@ class DocVQA(Dataset):
         for line in range(nlines):
             input_text += lines[line]['text'] + ' '
             bbox = lines[line]['boundingBox']
-            bboxes.append(bbox[:2] + bbox[4:6])
+            tl_point = bbox[:2]
+            br_point = bbox[4:6]
+            if tl_point[0] <= br_point[0] and tl_point[1] <= br_point[1]:
+                # skip points that down respect tl/br logic
+                bboxes.append(tl_point + br_point)
+
         bboxes += [[0, 0, 0, 0]] * (self.seq_len - len(bboxes))
         assert len(bboxes) == self.seq_len
 
         bboxes = torch.tensor(bboxes)
         bboxes = (((bboxes - bboxes.min()) / (bboxes.max() - bboxes.min()))*1000).long()
+        assert (bboxes[:, 3] - bboxes[:, 1] >= 0).all().item()  # height must be > 0
+        assert (bboxes[:, 2] - bboxes[:, 0] >= 0).all().item()  # width must be > 0
 
         target_text = random.choice(data["answers"]) if self.mode == "train" else data.get("answers", ["NA"])[0]
         target = self.tokenizer.encode(target_text,
