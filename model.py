@@ -159,6 +159,7 @@ if __name__ == "__main__":
     parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
     parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
     parser.add_argument("--bs", type=int, default=2, help="Batch size.")
+    parser.add_argument("--acum", type=int, default=1, help="Acum for batch.")
     parser.add_argument("--precision", type=int, default=32, help="Precision.")
     parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs.")
     parser.add_argument("--patience", type=int, default=2, help="How many epochs to wait for improvement in validation.")
@@ -203,6 +204,7 @@ if __name__ == "__main__":
 
         trainer = pl.Trainer(max_epochs=hparams.max_epochs,
                              gpus=0 if hparams.cpu else 1,
+                             accumulate_grad_batches=hparams.acum,
                              precision=hparams.precision,
                              logger=logger,
                              callbacks=callbacks,
