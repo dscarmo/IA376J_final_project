@@ -11,6 +11,7 @@ from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from torch.utils.data import DataLoader
 from transformers import T5ForConditionalGeneration, LayoutLMModel, T5Tokenizer, LayoutLMTokenizer
+from transformers.models.layoutlm.modeling_layoutlm import LayoutLMEmbeddings
 
 from dataset import DocVQA
 from metrics import compute_exact, compute_f1
@@ -18,7 +19,8 @@ from metrics import compute_exact, compute_f1
 
 class LayoutLMT5(pl.LightningModule):
     '''
-    Connect LayoutLM base to T5-base text generator.
+    Connect LayoutLM base to T5-base text generator, or
+    try to use bounding box embeddings into base t5.
     '''
     def __init__(self, hparams):
         super().__init__()
@@ -32,6 +34,9 @@ class LayoutLMT5(pl.LightningModule):
 
         print("Initializing T5...")
         self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
+        if self.hparams.llm_emb:
+            print("Initializing layoutlm embeddings")
+            self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
 
         if self.hparams.t5_only:
             self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
@@ -76,19 +81,31 @@ class LayoutLMT5(pl.LightningModule):
 
     def forward(self, batch):
         if not self.hparams.t5_only:
+            # LayoutLM features
             features = self.encoder(input_ids=batch["input_ids"], token_type_ids=batch["token_type_ids"],
                                     attention_mask=batch["attention_mask"], bbox=batch["bboxes"])[0]
+        elif self.hparams.llm_emb:
+            # LayoutLM embeddings, using T5 word embeddings
+            t5_embeddings = self.t5.shared(batch["input_ids"])
+            features = self.llm_emb(input_ids=batch["input_ids"], bbox=batch["bboxes"], token_type_ids=batch["token_type_ids"],
+                                    inputs_embeds=t5_embeddings)
+        else:
+            features = None
 
         if self.training:
             if self.hparams.t5_only:
-                return self.t5(input_ids=batch["input_ids"],
-                               attention_mask=batch["attention_mask"],
-                               labels=batch["target"])[0]
+                if self.hparams.llm_emb:
+                    return self.t5(inputs_embeds=features,
+                                   labels=batch["target"])[0]
+                else:
+                    return self.t5(input_ids=batch["input_ids"],
+                                   attention_mask=batch["attention_mask"],
+                                   labels=batch["target"])[0]
             else:
                 return self.t5(inputs_embeds=features,
                                labels=batch["target"])[0]
         else:
-            if self.hparams.t5_only:
+            if self.hparams.t5_only and not self.hparams.llm_emb:
                 return self.t5.generate(input_ids=batch["input_ids"], max_length=32)
             else:
                 return self.my_generate(features, max_length=32)
@@ -155,6 +172,7 @@ if __name__ == "__main__":
     parser.add_argument("--layoutlm_str", type=str, default="microsoft/layoutlm-base-uncased", help="LayoutLM weights to load.")
     parser.add_argument("--freeze_layoutlm", action="store_true", help="Freeze layoutlm weights.")
     parser.add_argument("--t5_only", action="store_true", help="Remove LayoutLM from model.")
+    parser.add_argument("--llm_emb", action="store_true", help="Use llmembbedings in T5.")
     parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")
     parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
     parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
