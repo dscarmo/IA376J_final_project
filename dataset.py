@@ -127,6 +127,7 @@ class DocVQA(Dataset):
 
 if __name__ == "__main__":
     import argparse
+    from matplotlib import pyplot as plt
     parser = argparse.ArgumentParser()
     parser.add_argument("task")
     parser.add_argument("-ni", action="store_true")
@@ -149,3 +150,6 @@ if __name__ == "__main__":
         for k, v in sample.items():
             if k != "document":
                 print(f"{k}: {v}")
+            else:
+                plt.imshow(v.squeeze().numpy(), cmap="gray")
+                plt.show()

@@ -34,7 +34,8 @@ class LayoutLMT5(pl.LightningModule):
 
         print("Initializing T5...")
         self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
-        if self.hparams.llm_emb:
+        self.use_llm_emb = getattr(self.hparams, "llm_emb", False)
+        if self.use_llm_emb:
             print("Initializing layoutlm embeddings")
             self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
 
@@ -84,7 +85,7 @@ class LayoutLMT5(pl.LightningModule):
             # LayoutLM features
             features = self.encoder(input_ids=batch["input_ids"], token_type_ids=batch["token_type_ids"],
                                     attention_mask=batch["attention_mask"], bbox=batch["bboxes"])[0]
-        elif self.hparams.llm_emb:
+        elif self.use_llm_emb:
             # LayoutLM embeddings, using T5 word embeddings
             t5_embeddings = self.t5.shared(batch["input_ids"])
             features = self.llm_emb(input_ids=batch["input_ids"], bbox=batch["bboxes"], token_type_ids=batch["token_type_ids"],
@@ -94,7 +95,7 @@ class LayoutLMT5(pl.LightningModule):
 
         if self.training:
             if self.hparams.t5_only:
-                if self.hparams.llm_emb:
+                if self.use_llm_emb:
                     return self.t5(inputs_embeds=features,
                                    labels=batch["target"])[0]
                 else:
@@ -105,7 +106,7 @@ class LayoutLMT5(pl.LightningModule):
                 return self.t5(inputs_embeds=features,
                                labels=batch["target"])[0]
         else:
-            if self.hparams.t5_only and not self.hparams.llm_emb:
+            if self.hparams.t5_only and not self.use_llm_emb:
                 return self.t5.generate(input_ids=batch["input_ids"], max_length=32)
             else:
                 return self.my_generate(features, max_length=32)
