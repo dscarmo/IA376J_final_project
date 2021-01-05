@@ -70,16 +70,29 @@ class CNNT5(pl.LightningModule):
         else:
             return self.generate(embedding)
 
-    def generate(self, embedding):
+    def extract_features(self, image):
+        embedding = self.embedding_extractor(image)
+
+        return self.generate(embedding, generate_hidden_states=True)
+
+    def generate(self, embedding, generate_hidden_states=False):
         max_length = self.hparams.seq_len
 
         decoded_ids = torch.full((embedding.shape[0], 1),
                                  self.decoder.config.decoder_start_token_id,
                                  dtype=torch.long).to(embedding.device)
+        if generate_hidden_states:
+            hidden_states = []
 
         for step in range(max_length):
-            logits = self.decoder(decoder_input_ids=decoded_ids,
-                                  encoder_outputs=(embedding,))[0]
+            output = self.decoder(decoder_input_ids=decoded_ids,
+                                  encoder_outputs=(embedding,),
+                                  output_hidden_states=generate_hidden_states)
+
+            if generate_hidden_states:
+                hidden_states.append(output["decoder_hidden_states"][-1].mean(dim=1))
+
+            logits = output['logits']
             next_token_logits = logits[:, -1, :]
 
             # Greedy decoding
@@ -92,7 +105,10 @@ class CNNT5(pl.LightningModule):
             # Concatenate past ids with new id, keeping batch dimension
             decoded_ids = torch.cat([decoded_ids, next_token_id], dim=-1)
 
-        return decoded_ids
+        if generate_hidden_states:
+            return decoded_ids, torch.stack(hidden_states).mean(dim=0)
+        else:
+            return decoded_ids
 
     def training_step(self, batch, batch_idx):
         loss = self(batch)
@@ -147,4 +163,9 @@ class CNNT5(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    cnn_t5 = CNNT5.load_from_checkpoint("models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt", strict=False)
+    cnn_t5 = CNNT5.load_from_checkpoint("models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt",
+                                        strict=False).eval().cuda()
+    with torch.no_grad():
+        output = cnn_t5.extract_features(torch.randn((2, 3, 512, 256)).cuda())
+
+    print(output[1].shape)
