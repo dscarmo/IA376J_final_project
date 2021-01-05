@@ -15,6 +15,7 @@ from transformers.models.layoutlm.modeling_layoutlm import LayoutLMEmbeddings
 
 from dataset import DocVQA
 from metrics import compute_exact, compute_f1
+from radam import RAdam
 
 
 class LayoutLMT5(pl.LightningModule):
@@ -25,6 +26,9 @@ class LayoutLMT5(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
+
+        self.use_radam = getattr(self.hparams, "use_radam", False)
+
         if not self.hparams.t5_only:
             print("Initializing LayoutLM...")
             self.encoder = LayoutLMModel.from_pretrained(self.hparams.layoutlm_str)
@@ -152,7 +156,13 @@ class LayoutLMT5(pl.LightningModule):
         return self.epoch_end(outputs, "test")
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        if self.use_radam:
+            optimizer_str = "RAdam"
+            return RAdam(self.parameters(), lr=self.hparams.lr)
+        else:
+            optimizer_str = "Adam"
+            return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        print(f"Optimizer: {optimizer_str}")
 
     def train_dataloader(self):
         return DataLoader(DocVQA("train", self.tokenizer, transform=self.hparams.train_transform, no_image=self.hparams.no_image),
@@ -188,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("--experiment_name", type=str, default="baseline", help="Single word describing experiment.")
     parser.add_argument("--description", type=str, default="No description.", help="Single phrase describing experiment.")
     parser.add_argument("--no_image", action="store_true", help="Don't load document images.")
+    parser.add_argument("--use_radam", action="store_true", help="Use the RADAM optimizer.")
     parser.add_argument("--debug", action="store_true", help="Fast dev run mode.")
     parser.add_argument("--cli_args", type=str, default=str(argv), help="Store command line arguments. Don't change manually.")
     parser.add_argument("--no_fit", action="store_true", help="Do everything except starting the fit.")
@@ -209,7 +220,7 @@ if __name__ == "__main__":
                                    params=vars(hparams))
 
             dir_path = os.path.join("models", hparams.experiment_name)
-            filename = "{epoch}-{val_loss:.2f}-{val_extact_match:.2f}-{val_f1:.2f}"
+            filename = "{epoch}-{val_exact_match:.2f}-{val_f1:.2f}"
             callbacks = [EarlyStopping(monitor="val_f1",
                                        patience=hparams.patience,
                                        verbose=False,
