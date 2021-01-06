@@ -29,10 +29,15 @@ class ConvBlock(nn.Module):
 
 class Feature2Embedding(nn.Module):
     '''
-    Convert [B, C, H, W] image feature tensor to [B, seq_len, D] (B, 512, 512)
+    Convert [B, C, H, W] image feature tensor to [B, seq_len, D] (B, 512, 512).
+    For backwards compatibility.
     '''
+    def __init__(self, scale_factor=1):
+        super().__init__()
+        self.scale_factor = scale_factor
+
     def forward(self, x):
-        return x.permute(0, 2, 3, 1).reshape(-1, 512, 512)
+        return x.permute(0, 2, 3, 1).reshape(-1, 512, int(512*self.scale_factor))
 
 
 class CNNT5(pl.LightningModule):
@@ -44,11 +49,17 @@ class CNNT5(pl.LightningModule):
         self.hparams = hparams
         self.eval_transform = ToTensor()
         self.train_transform = self.eval_transform
-        self.embedding_extractor = nn.Sequential(ConvBlock(3, 16),
-                                                 ConvBlock(16, 64),
-                                                 ConvBlock(64, 256),
-                                                 ConvBlock(256, 512),
-                                                 Feature2Embedding())
+
+        if "base" in self.hparams.t5:
+            self.scale_factor = 1.5
+        else:
+            self.scale_factor = 1
+
+        self.embedding_extractor = nn.Sequential(ConvBlock(3, int(16*self.scale_factor)),
+                                                 ConvBlock(int(16*self.scale_factor), int(64*self.scale_factor)),
+                                                 ConvBlock(int(64*self.scale_factor), int(256*self.scale_factor)),
+                                                 ConvBlock(int(256*self.scale_factor), int(512*self.scale_factor)),
+                                                 Feature2Embedding(scale_factor=self.scale_factor))
 
         self.decoder = T5ForConditionalGeneration.from_pretrained(self.hparams.t5)
         self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5)
@@ -81,8 +92,9 @@ class CNNT5(pl.LightningModule):
         decoded_ids = torch.full((embedding.shape[0], 1),
                                  self.decoder.config.decoder_start_token_id,
                                  dtype=torch.long).to(embedding.device)
+
         if generate_hidden_states:
-            hidden_states = []
+            hidden_states = torch.zeros((embedding.shape[0], 512, int(512*self.scale_factor))).to(embedding.device)
 
         for step in range(max_length):
             output = self.decoder(decoder_input_ids=decoded_ids,
@@ -90,7 +102,7 @@ class CNNT5(pl.LightningModule):
                                   output_hidden_states=generate_hidden_states)
 
             if generate_hidden_states:
-                hidden_states.append(output["decoder_hidden_states"][-1].mean(dim=1))
+                hidden_states[:, step, :] = output["decoder_hidden_states"][-1].mean(dim=1)
 
             logits = output['logits']
             next_token_logits = logits[:, -1, :]
@@ -106,7 +118,7 @@ class CNNT5(pl.LightningModule):
             decoded_ids = torch.cat([decoded_ids, next_token_id], dim=-1)
 
         if generate_hidden_states:
-            return decoded_ids, torch.stack(hidden_states).mean(dim=0)
+            return decoded_ids, hidden_states
         else:
             return decoded_ids
 
@@ -163,9 +175,19 @@ class CNNT5(pl.LightningModule):
 
 
 if __name__ == "__main__":
+    print("Testing pre-trained CNNT5 small...")
     cnn_t5 = CNNT5.load_from_checkpoint("models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt",
                                         strict=False).eval().cuda()
+    hparams = cnn_t5.hparams
     with torch.no_grad():
         output = cnn_t5.extract_features(torch.randn((2, 3, 512, 256)).cuda())
+
+    print(output[1].shape)
+
+    print("Testing CNNT5 base...")
+    hparams.t5 = "t5-base"
+    cnn_t5 = CNNT5(hparams).eval().cuda()
+    with torch.no_grad():
+        output = cnn_t5.extract_features(torch.randn((1, 3, 512, 256)).cuda())
 
     print(output[1].shape)
