@@ -9,3 +9,5 @@ datasets
 ftfy
 sklearn
 dvc
+imageio
+sentencepiece
