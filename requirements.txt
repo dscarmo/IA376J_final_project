@@ -1,0 +1,10 @@
+torch
+torchvision
+pytorch_lightning
+tqdm
+numpy
+neptune-client
+transformers
+datasets
+ftfy
+sklearn
