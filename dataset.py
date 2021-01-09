@@ -18,9 +18,11 @@ class DocVQA(Dataset):
     def full(tokenizer: PreTrainedTokenizer,
              transform: object = None,
              seq_len: int = 512,
+             tgt_seq_len: int = 32,
              no_image: bool = False):
         dataset = ConcatDataset([DocVQA(mode, tokenizer, transform=transform,
-                                        seq_len=seq_len, no_image=no_image) for mode in ["train", "val", "test"]])
+                                        seq_len=seq_len, no_image=no_image,
+                                        tgt_seq_len=tgt_seq_len) for mode in ["train", "val", "test"]])
         dataset.__setattr__("tokenizer", tokenizer)
         return dataset
 
@@ -29,6 +31,7 @@ class DocVQA(Dataset):
                  tokenizer: PreTrainedTokenizer,
                  transform: object = None,
                  seq_len: int = 512,
+                 tgt_seq_len: int = 32,
                  no_image: bool = False):
         '''
         mode: one of train, val and test.
@@ -53,11 +56,12 @@ class DocVQA(Dataset):
         self.tokenizer = tokenizer
         self.transform = transform
         self.seq_len = seq_len
+        self.tgt_seq_len = tgt_seq_len
         self.mode = mode
         self.no_image = no_image
 
         print(f"{self.mode} DocVQA folder {self.folder} tokenizer {self.tokenizer} transform {self.transform} seq_len {self.seq_len} "
-              f"no_image {self.no_image}")
+              f"no_image {self.no_image} tgt_seq_len {self.tgt_seq_len}")
 
     def __len__(self):
         return len(self.data_json["data"])
@@ -101,7 +105,7 @@ class DocVQA(Dataset):
         target = self.tokenizer.encode(target_text,
                                        padding='max_length',
                                        truncation=True,
-                                       max_length=self.seq_len,
+                                       max_length=self.tgt_seq_len,
                                        return_tensors='pt')[0]
 
         input_tokens = self.tokenizer.encode_plus(input_text,
@@ -154,4 +158,4 @@ if __name__ == "__main__":
                 print(f"{k}: {v}")
             else:
                 plt.imshow(v.squeeze().numpy(), cmap="gray")
-                plt.show()
+        plt.show()

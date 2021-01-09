@@ -176,15 +176,18 @@ class LayoutLMT5(pl.LightningModule):
         print(f"Optimizer: {optimizer_str}")
 
     def train_dataloader(self):
-        return DataLoader(DocVQA("train", self.tokenizer, transform=self.hparams.train_transform, no_image=self.hparams.no_image),
+        return DataLoader(DocVQA("train", self.tokenizer, transform=self.hparams.train_transform, no_image=self.hparams.no_image,
+                                 seq_len=self.hparams.seq_len, tgt_seq_len=self.hparams.tgt_seq_len),
                           batch_size=self.hparams.bs, shuffle=True, num_workers=self.hparams.nworkers)
 
     def val_dataloader(self):
-        return DataLoader(DocVQA("val", self.tokenizer, transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
+        return DataLoader(DocVQA("val", self.tokenizer, transform=self.hparams.eval_transform, no_image=self.hparams.no_image,
+                                 seq_len=self.hparams.seq_len, tgt_seq_len=self.hparams.tgt_seq_len),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
     def test_dataloader(self):
-        return DataLoader(DocVQA("test", self.tokenizer, transform=self.hparams.eval_transform, no_image=self.hparams.no_image),
+        return DataLoader(DocVQA("test", self.tokenizer, transform=self.hparams.eval_transform, no_image=self.hparams.no_image,
+                                 seq_len=self.hparams.seq_len, tgt_seq_len=self.hparams.tgt_seq_len),
                           batch_size=self.hparams.bs, shuffle=False, num_workers=self.hparams.nworkers)
 
 
@@ -197,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--llm_emb", action="store_true", help="Use llmembbedings in T5.")
     parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")
     parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
+    parser.add_argument("--tgt_seq_len", type=int, default=32, help="Output seq len.")
     parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
     parser.add_argument("--bs", type=int, default=2, help="Batch size.")
     parser.add_argument("--acum", type=int, default=1, help="Acum for batch.")
