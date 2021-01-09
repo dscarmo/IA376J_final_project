@@ -72,7 +72,7 @@ class DocVQA(Dataset):
         if self.no_image:
             document = "NA"
         else:
-            document = np.array(imageio.imread(os.path.join(self.folder, data["image"])))
+            document = cv.cvtColor(np.array(imageio.imread(os.path.join(self.folder, data["image"]))), cv.COLOR_GRAY2RGB)
 
         ID = data["ucsf_document_id"] + '_' + data["ucsf_document_page_no"]
         ocr_file = os.path.join(self.folder, "ocr_results", ID + ".json")
@@ -115,7 +115,6 @@ class DocVQA(Dataset):
                                                   return_tensors='pt',
                                                   return_token_type_ids=True)
 
-        document = cv.cvtColor(document, cv.COLOR_GRAY2RGB)
         if self.transform is not None:
             document = self.transform(document)
 
@@ -157,5 +156,6 @@ if __name__ == "__main__":
             if k != "document":
                 print(f"{k}: {v}")
             else:
+                print(v.shape)
                 plt.imshow(v.squeeze().numpy(), cmap="gray")
         plt.show()
