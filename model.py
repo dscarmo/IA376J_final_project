@@ -44,7 +44,7 @@ class LayoutLMT5(pl.LightningModule):
         if self.use_llm_emb:
             print("Initializing layoutlm embeddings")
             self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
-            
+
         if not self.hparams.no_image:
             print("Using images, CNNT5 based initialized as a image embedding extractor.")
             self.cnnt5 = CNNT5({"t5": self.hparams.t5_str, "pre_train": True,
@@ -104,7 +104,7 @@ class LayoutLMT5(pl.LightningModule):
             features = self.llm_emb(input_ids=batch["input_ids"], bbox=batch["bboxes"], token_type_ids=batch["token_type_ids"],
                                     inputs_embeds=t5_embeddings)
             if not self.hparams.no_image:
-                features += self.cnnt5.extract_features(batch["document"])
+                features += self.cnnt5.extract_features(batch["document"])[1]
         else:
             features = None
 
