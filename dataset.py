@@ -5,6 +5,7 @@ import os
 import json
 import torch
 import imageio
+import cv2 as cv
 import numpy as np
 import random
 from tqdm import tqdm
@@ -110,6 +111,7 @@ class DocVQA(Dataset):
                                                   return_tensors='pt',
                                                   return_token_type_ids=True)
 
+        document = cv.cvtColor(document, cv.COLOR_GRAY2RGB)
         if self.transform is not None:
             document = self.transform(document)
 

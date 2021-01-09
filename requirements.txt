@@ -11,3 +11,4 @@ sklearn
 dvc
 imageio
 sentencepiece
+opencv-python

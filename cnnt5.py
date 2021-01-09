@@ -177,17 +177,19 @@ class CNNT5(pl.LightningModule):
 if __name__ == "__main__":
     print("Testing pre-trained CNNT5 small...")
     cnn_t5 = CNNT5.load_from_checkpoint("models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt",
-                                        strict=False).eval().cuda()
+                                        strict=False).eval()
+    print("Loaded cnnt5 small.")
     hparams = cnn_t5.hparams
     with torch.no_grad():
-        output = cnn_t5.extract_features(torch.randn((2, 3, 512, 256)).cuda())
+        output = cnn_t5.extract_features(torch.randn((2, 3, 512, 256)))
 
     print(output[1].shape)
 
     print("Testing CNNT5 base...")
     hparams.t5 = "t5-base"
-    cnn_t5 = CNNT5(hparams).eval().cuda()
+    cnn_t5 = CNNT5(hparams).eval()
+    print("Initialized cnnt5 base.")
     with torch.no_grad():
-        output = cnn_t5.extract_features(torch.randn((1, 3, 512, 256)).cuda())
+        output = cnn_t5.extract_features(torch.randn((2, 3, 512, 256)))  # half reduced cause of notebook implementation. Original 512, 256
 
     print(output[1].shape)

@@ -16,6 +16,8 @@ from transformers.models.layoutlm.modeling_layoutlm import LayoutLMEmbeddings
 from dataset import DocVQA
 from metrics import compute_exact, compute_f1
 from radam import RAdam
+from cnnt5 import CNNT5
+from transforms import get_transform
 
 
 class LayoutLMT5(pl.LightningModule):
@@ -42,6 +44,13 @@ class LayoutLMT5(pl.LightningModule):
         if self.use_llm_emb:
             print("Initializing layoutlm embeddings")
             self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
+            
+        if not self.hparams.no_image:
+            print("Using images, CNNT5 based initialized as a image embedding extractor.")
+            self.cnnt5 = CNNT5({"t5": self.hparams.t5_str, "pre_train": True,
+                                "seq_len": self.hparams.seq_len})
+            for param in tqdm(self.cnnt5.parameters(), desc="Freezing CNNT5...", leave=True):
+                param.requires_grad = False
 
         if self.hparams.t5_only:
             self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
@@ -94,6 +103,8 @@ class LayoutLMT5(pl.LightningModule):
             t5_embeddings = self.t5.shared(batch["input_ids"])
             features = self.llm_emb(input_ids=batch["input_ids"], bbox=batch["bboxes"], token_type_ids=batch["token_type_ids"],
                                     inputs_embeds=t5_embeddings)
+            if not self.hparams.no_image:
+                features += self.cnnt5.extract_features(batch["document"])
         else:
             features = None
 
@@ -192,8 +203,7 @@ if __name__ == "__main__":
     parser.add_argument("--precision", type=int, default=32, help="Precision.")
     parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs.")
     parser.add_argument("--patience", type=int, default=2, help="How many epochs to wait for improvement in validation.")
-    parser.add_argument("--train_transform", type=object, default=None, help="Train transform. Can't be set through CLI.")
-    parser.add_argument("--eval_transform", type=object, default=None, help="Val and test transform. Can't be set through CLI.")
+    parser.add_argument("--transform_str", type=str, default=None, help="String that sets transforms.")
     parser.add_argument("--nworkers", type=object, default=mp.cpu_count(), help="Number of workers to use in dataloading.")
     parser.add_argument("--experiment_name", type=str, default="baseline", help="Single word describing experiment.")
     parser.add_argument("--description", type=str, default="No description.", help="Single phrase describing experiment.")
@@ -205,6 +215,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained_model", type=str, default=None, help="Pre trained model to start with.")
     parser.add_argument("--cpu", action="store_true", help="Force using CPU.")
     hparams = parser.parse_args()
+
+    hparams.train_transform, hparams.eval_transform = get_transform(hparams.transform_str)
 
     if hparams.task == "train":
         model = LayoutLMT5(hparams=hparams)
