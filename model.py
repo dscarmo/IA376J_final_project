@@ -6,6 +6,7 @@ from sys import argv
 import torch
 import numpy as np
 import pytorch_lightning as pl
+from torch import nn
 from tqdm import tqdm
 from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
@@ -46,12 +47,13 @@ class LayoutLMT5(pl.LightningModule):
             self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
 
         if not self.hparams.no_image:
-            print("Using images, CNNT5 based initialized as a image embedding extractor.")
-            self.cnnt5 = CNNT5({"t5": self.hparams.t5_str, "pre_train": True,
+            print("Using images, CNNT5 small initialized as a image embedding extractor.")
+            self.cnnt5 = CNNT5({"t5": "t5-small", "pre_train": False, "initial_ckpt": "models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt",
                                 "seq_len": self.hparams.seq_len})
             for param in tqdm(self.cnnt5.parameters(), desc="Freezing CNNT5...", leave=True):
                 param.requires_grad = False
-
+            self.adapt_cnnt5_features = nn.Linear(512, 768)
+            
         if self.hparams.t5_only:
             self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
         else:
@@ -64,7 +66,7 @@ class LayoutLMT5(pl.LightningModule):
         Usa features construídas externamente para gerar frases com T5.
         '''
         if max_length is None:
-            max_length = self.hparams.seq_len
+            max_length = self.hparams.tgt_seq_len
 
         decoded_ids = torch.full((features.shape[0], 1),
                                  self.t5.config.decoder_start_token_id,
@@ -104,7 +106,10 @@ class LayoutLMT5(pl.LightningModule):
             features = self.llm_emb(input_ids=batch["input_ids"], bbox=batch["bboxes"], token_type_ids=batch["token_type_ids"],
                                     inputs_embeds=t5_embeddings)
             if not self.hparams.no_image:
-                features += self.cnnt5.extract_features(batch["document"])[1]
+                with torch.no_grad():
+                    cnn_t5_features = self.cnnt5.extract_features(batch["document"])[1]
+                cnn_t5_features = self.adapt_cnnt5_features(cnn_t5_features)
+                features += cnn_t5_features
         else:
             features = None
 
@@ -201,12 +206,12 @@ if __name__ == "__main__":
     parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")
     parser.add_argument("--seq_len", type=int, default=512, help="Transformer sequence length.")
     parser.add_argument("--tgt_seq_len", type=int, default=32, help="Output seq len.")
-    parser.add_argument("--lr", type=float, default=5e-4, help="ADAM Learning Rate.")
-    parser.add_argument("--bs", type=int, default=2, help="Batch size.")
+    parser.add_argument("--lr", type=float, default=5e-5, help="ADAM Learning Rate.")
+    parser.add_argument("--bs", type=int, default=6, help="Batch size.")
     parser.add_argument("--acum", type=int, default=1, help="Acum for batch.")
     parser.add_argument("--precision", type=int, default=32, help="Precision.")
-    parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs.")
-    parser.add_argument("--patience", type=int, default=2, help="How many epochs to wait for improvement in validation.")
+    parser.add_argument("--max_epochs", type=int, default=50, help="Maximum number of epochs.")
+    parser.add_argument("--patience", type=int, default=10, help="How many epochs to wait for improvement in validation.")
     parser.add_argument("--transform_str", type=str, default=None, help="String that sets transforms.")
     parser.add_argument("--nworkers", type=object, default=mp.cpu_count(), help="Number of workers to use in dataloading.")
     parser.add_argument("--experiment_name", type=str, default="baseline", help="Single word describing experiment.")

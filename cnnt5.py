@@ -66,7 +66,7 @@ class CNNT5(pl.LightningModule):
 
         if not self.hparams.pre_train:
             print(f"Not pre-training, loading trained weight {self.hparams.initial_ckpt}.")
-            pre_trained = CNNT5.load_from_checkpoint(self.hparams.initial_ckpt)
+            pre_trained = CNNT5.load_from_checkpoint(self.hparams.initial_ckpt, strict=False)
 
             self.embedding_extractor.load_state_dict(pre_trained.embedding_extractor.state_dict())
             self.decoder.load_state_dict(pre_trained.decoder.state_dict())
