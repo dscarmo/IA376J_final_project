@@ -72,7 +72,9 @@ class DocVQA(Dataset):
         if self.no_image:
             document = "NA"
         else:
-            document = cv.cvtColor(np.array(imageio.imread(os.path.join(self.folder, data["image"]))), cv.COLOR_GRAY2RGB)
+            document = np.array(imageio.imread(os.path.join(self.folder, data["image"])))
+            if 3 not in document.shape:
+                document = cv.cvtColor(document, cv.COLOR_GRAY2RGB)
 
         ID = data["ucsf_document_id"] + '_' + data["ucsf_document_page_no"]
         ocr_file = os.path.join(self.folder, "ocr_results", ID + ".json")
