@@ -17,7 +17,7 @@ from transformers.models.layoutlm.modeling_layoutlm import LayoutLMEmbeddings
 from dataset import DocVQA
 from metrics import compute_exact, compute_f1
 from radam import RAdam
-from cnnt5 import CNNT5
+from cnnt5_old import CNNT5
 from transforms import get_transform
 
 
@@ -58,7 +58,7 @@ class LayoutLMT5(pl.LightningModule):
                 for param in tqdm(self.cnnt5.parameters(), desc="Freezing CNNT5 as an image Embedding extractor...", leave=True):
                     param.requires_grad = False
                 self.adapt_cnnt5_features = nn.Linear(512, 768)
-            
+
         if self.hparams.t5_only:
             self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
         elif self.cnnt5_only:
