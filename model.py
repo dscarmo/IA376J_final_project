@@ -31,31 +31,38 @@ class LayoutLMT5(pl.LightningModule):
         self.hparams = hparams
 
         self.use_radam = getattr(self.hparams, "use_radam", False)
+        self.cnnt5_only = getattr(self.hparams, "cnnt5_only", False)
 
-        if not self.hparams.t5_only:
-            print("Initializing LayoutLM...")
-            self.encoder = LayoutLMModel.from_pretrained(self.hparams.layoutlm_str)
-            if self.hparams.freeze_layoutlm:
-                for param in tqdm(self.encoder.parameters(), desc="Freezing LayoutLM...", leave=True):
-                    param.requires_grad = False
+        if not self.cnnt5_only:
+            if not self.hparams.t5_only:
+                print("Initializing LayoutLM...")
+                self.encoder = LayoutLMModel.from_pretrained(self.hparams.layoutlm_str)
+                if self.hparams.freeze_layoutlm:
+                    for param in tqdm(self.encoder.parameters(), desc="Freezing LayoutLM...", leave=True):
+                        param.requires_grad = False
 
-        print("Initializing T5...")
-        self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
-        self.use_llm_emb = getattr(self.hparams, "llm_emb", False)
-        if self.use_llm_emb:
-            print("Initializing layoutlm embeddings")
-            self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
+            print("Initializing T5...")
+            self.t5 = T5ForConditionalGeneration.from_pretrained(self.hparams.t5_str)
+            self.use_llm_emb = getattr(self.hparams, "llm_emb", False)
+            if self.use_llm_emb:
+                print("Initializing layoutlm embeddings")
+                self.llm_emb = LayoutLMEmbeddings(LayoutLMModel.from_pretrained(self.hparams.layoutlm_str).config)
 
         if not self.hparams.no_image:
-            print("Using images, CNNT5 small initialized as a image embedding extractor.")
+            print("Using images, CNNT5 small initialized.")
             self.cnnt5 = CNNT5({"t5": "t5-small", "pre_train": False, "initial_ckpt": "models/wikipedia_pre_train_continue-epoch=1-val_exact_match=0.58-val_f1=0.98.ckpt",
-                                "seq_len": self.hparams.seq_len})
-            for param in tqdm(self.cnnt5.parameters(), desc="Freezing CNNT5...", leave=True):
-                param.requires_grad = False
-            self.adapt_cnnt5_features = nn.Linear(512, 768)
+                                "seq_len": self.hparams.seq_len, "tgt_seq_len": self.hparams.tgt_seq_len})
+            if self.cnnt5_only:
+                print("Fine-tuning CNNT5.")
+            else:
+                for param in tqdm(self.cnnt5.parameters(), desc="Freezing CNNT5 as an image Embedding extractor...", leave=True):
+                    param.requires_grad = False
+                self.adapt_cnnt5_features = nn.Linear(512, 768)
             
         if self.hparams.t5_only:
             self.tokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
+        elif self.cnnt5_only:
+            self.tokenizer = self.cnnt5.tokenizer
         else:
             self.tokenizer = LayoutLMTokenizer.from_pretrained(self.hparams.layoutlm_str)
         self.detokenizer = T5Tokenizer.from_pretrained(self.hparams.t5_str)
@@ -96,7 +103,11 @@ class LayoutLMT5(pl.LightningModule):
         return decoded_ids
 
     def forward(self, batch):
-        if not self.hparams.t5_only:
+        if self.cnnt5_only:
+            cnnt5_batch = (batch["document"], batch["target"], batch["target_text"])
+            return self.cnnt5(cnnt5_batch)
+
+        if not self.hparams.t5_only and not self.cnnt5_only:
             # LayoutLM features
             features = self.encoder(input_ids=batch["input_ids"], token_type_ids=batch["token_type_ids"],
                                     attention_mask=batch["attention_mask"], bbox=batch["bboxes"])[0]
@@ -201,6 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("task")
     parser.add_argument("--layoutlm_str", type=str, default="microsoft/layoutlm-base-uncased", help="LayoutLM weights to load.")
     parser.add_argument("--freeze_layoutlm", action="store_true", help="Freeze layoutlm weights.")
+    parser.add_argument("--cnnt5_only", action="store_true", help="Train only CNNT5.")
     parser.add_argument("--t5_only", action="store_true", help="Remove LayoutLM from model.")
     parser.add_argument("--llm_emb", action="store_true", help="Use llmembbedings in T5.")
     parser.add_argument("--t5_str", type=str, default="t5-base", help="T5 weights to load.")

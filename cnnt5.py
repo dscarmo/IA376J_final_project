@@ -87,7 +87,7 @@ class CNNT5(pl.LightningModule):
         return self.generate(embedding, generate_hidden_states=True)
 
     def generate(self, embedding, generate_hidden_states=False):
-        max_length = self.hparams.seq_len
+        max_length = min(self.hparams.seq_len, getattr(self.hparams, "tgt_seq_len", 512))
 
         decoded_ids = torch.full((embedding.shape[0], 1),
                                  self.decoder.config.decoder_start_token_id,
