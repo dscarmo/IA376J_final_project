@@ -32,6 +32,7 @@ class LayoutLMT5(pl.LightningModule):
 
         self.use_radam = getattr(self.hparams, "use_radam", False)
         self.cnnt5_only = getattr(self.hparams, "cnnt5_only", False)
+        self.hparams.tgt_seq_len = getattr(self.hparams, "tgt_seq_len", self.hparams.seq_len)
 
         if not self.cnnt5_only:
             if not self.hparams.t5_only:
@@ -281,7 +282,7 @@ if __name__ == "__main__":
 
         if not hparams.no_fit:
             trainer.fit(model)
-    elif hparams.task == "validate":
+    elif hparams.task == "test":
         pretrained_model = LayoutLMT5.load_from_checkpoint(hparams.pretrained_model, strict=False)
         validator = pl.Trainer(gpus=1, logger=False)
-        validator.test(pretrained_model, test_dataloaders=pretrained_model.val_dataloader())
+        validator.test(pretrained_model, test_dataloaders=pretrained_model.test_dataloader())
